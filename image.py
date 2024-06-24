@@ -1,9 +1,7 @@
 import cv2
 import numpy as np
-from skimage import segmentation, color
 from fast_slic import Slic
 
-from skimage.io import imread, imshow
 
 
 def correct_barrel_distortion(image, fx, fy, cx, cy, dist_coeffs):
@@ -29,26 +27,31 @@ def correct_barrel_distortion(image, fx, fy, cx, cy, dist_coeffs):
 
 def mask_image(image):
     B, G, R = cv2.split(image)
+    B_norm, G_norm, R_norm = B/255, G/255, R/255
+    denom = cv2.normalize(B_norm + G_norm + R_norm, None, 0.0001, 3, cv2.NORM_MINMAX)
+
+    b, g, r = B_norm / denom, G_norm / denom, R_norm / denom
 
     # Compute the ExG index
-    ExG = 1.5 * G - R - B #not actual ExG
-    GLI = (2 * G - R - B) / (2 * G + R + B)
+    ExG = 2 * g - r - b
+    #GLI = (2 * G - R - B) / (2 * G + R + B)
 
     # Normalize the ExG index to the range 0-255 for display purposes
     ExG_normalized = cv2.normalize(ExG, None, 0, 255, cv2.NORM_MINMAX)
+    cv2.imwrite('test.jpg', ExG_normalized)
 
     # Convert the ExG image to uint8 type
     ExG_normalized = ExG_normalized.astype(np.uint8)
 
     # Apply a higher global threshold
-    _, high_thresh = cv2.threshold(ExG_normalized, 180, 255, cv2.THRESH_BINARY)
+    _, high_thresh = cv2.threshold(ExG_normalized, 100, 255, cv2.THRESH_BINARY)
 
     return high_thresh
 
 def drawlines(image, lines, col = (255, 0, 0)):
     res = image.copy()
     for coord in lines:
-        res = cv2.line(res, (coord[0] ,0), (coord[1], h), col, 2)
+        res = cv2.line(res, (coord[0][0] ,coord[0][1]), (coord[1][0], coord[1][1]), col, 2)
     return res
 
 def slic(image, segments):
@@ -104,34 +107,56 @@ def mask_superpixels_intersecting_line(image, labels, lines):
 
     return masked_image, superpixel_mask
 
+def hough_transform(image):
+    pass
+
 
 if __name__ == "__main__":
 
-    image = cv2.imread('original.jpg')
+    image = cv2.imread('original3.tiff')
 
     h, w = image.shape[:2]
     fx, fy = w, h  # Approximation, should be calibrated for better results
     cx, cy = w / 2, h / 2
 
-    undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
-    cropped = undistorted[:, 0:w-800]
+    #undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
+    #cropped = undistorted[:, 0:w-800]
 
-    cv2.imwrite('undistorted.jpg', cropped)
+    #cv2.imwrite('undistorted.jpg', cropped)
 
-    mask = mask_image(cropped)
+    mask = mask_image(image)
+    sk = cv2.ximgproc.thinning(mask)
+    #sk = cv2.Canny(mask, 50, 200, 3)
 
 
-    tops, bottoms = [160, 335, 515, 700, 885, 1065, 1250, 1435, 1630, 1835, 2025, 2250, 2430, 3220], [100, 275, 455, 675, 860, 1045, 1250, 1435, 1630, 1830, 2025, 2235, 2435, 3250]
-    withlines = drawlines(mask, zip(tops, bottoms))
-    segments = slic(cropped, 10000)
-    #superpixels = draw_superpixel_borders(cropped, segments)
-    #superpixels = drawlines(superpixels, zip(tops, bottoms))
-    intersections, sp_mask = mask_superpixels_intersecting_line(cropped, segments, zip(tops, bottoms))
+    lines = list(filter(lambda x: abs(x[0][1]) > 0.5,  cv2.HoughLines(sk, 1, np.pi / 180, 450, None, 0, 0)))
+    out = cv2.cvtColor(sk, cv2.COLOR_GRAY2BGR)
+    linesxy = []
+ 
+    if lines is not None:
+        for i in range(0, len(lines)):
+            rho = lines[i][0][0]
+            theta = lines[i][0][1]
+            a = np.cos(theta)
+            b = np.sin(theta)
+            x0 = a * rho
+            y0 = b * rho
+            pt1 = (int(x0 + w*(-b)), int(y0 + h*(a)))
+            pt2 = (int(x0 - w*(-b)), int(y0 - h*(a)))
+            linesxy.append((pt1, pt2))
+    lines = drawlines(image, linesxy)
+    
+    segments = slic(image, 3000)
+    superpixels = draw_superpixel_borders(image, segments)
+    superpixels = drawlines(superpixels, lines)
+    cv2.imwrite('test.tif', superpixels)
+
+    intersections, sp_mask = mask_superpixels_intersecting_line(image, segments, linesxy)
 
 
     crop_mask = cv2.bitwise_and(mask, sp_mask)
     weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
-    plantseg = np.zeros_like(cropped)
+    plantseg = np.zeros_like(image)
     plantseg[crop_mask == 255] = (0, 255, 0)
     plantseg[weed_mask == 255] = (0, 0, 255)
 
