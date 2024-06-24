@@ -1,9 +1,7 @@
 import cv2
 import numpy as np
-from skimage import segmentation, color
 from fast_slic import Slic
 
-from skimage.io import imread, imshow
 
 
 def correct_barrel_distortion(image, fx, fy, cx, cy, dist_coeffs):
@@ -29,19 +27,24 @@ def correct_barrel_distortion(image, fx, fy, cx, cy, dist_coeffs):
 
 def mask_image(image):
     B, G, R = cv2.split(image)
+    B_norm, G_norm, R_norm = B/255, G/255, R/255
+    denom = cv2.normalize(B_norm + G_norm + R_norm, None, 0.0001, 3, cv2.NORM_MINMAX)
+
+    b, g, r = B_norm / denom, G_norm / denom, R_norm / denom
 
     # Compute the ExG index
-    ExG = 1.5 * G - R - B #not actual ExG
-    GLI = (2 * G - R - B) / (2 * G + R + B)
+    ExG = 2 * g - r - b
+    #GLI = (2 * G - R - B) / (2 * G + R + B)
 
     # Normalize the ExG index to the range 0-255 for display purposes
     ExG_normalized = cv2.normalize(ExG, None, 0, 255, cv2.NORM_MINMAX)
+    cv2.imwrite('test.jpg', ExG_normalized)
 
     # Convert the ExG image to uint8 type
     ExG_normalized = ExG_normalized.astype(np.uint8)
 
     # Apply a higher global threshold
-    _, high_thresh = cv2.threshold(ExG_normalized, 180, 255, cv2.THRESH_BINARY)
+    _, high_thresh = cv2.threshold(ExG_normalized, 100, 255, cv2.THRESH_BINARY)
 
     return high_thresh
 
@@ -104,41 +107,43 @@ def mask_superpixels_intersecting_line(image, labels, lines):
 
     return masked_image, superpixel_mask
 
+def hough_transform(image):
+    pass
+
 
 if __name__ == "__main__":
 
-    image = cv2.imread('original.jpg')
+    image = cv2.imread('original3.tiff')
 
     h, w = image.shape[:2]
     fx, fy = w, h  # Approximation, should be calibrated for better results
     cx, cy = w / 2, h / 2
 
-    undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
-    cropped = undistorted[:, 0:w-800]
+    #undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
+    #cropped = undistorted[:, 0:w-800]
 
-    cv2.imwrite('undistorted.jpg', cropped)
+    #cv2.imwrite('undistorted.jpg', cropped)
 
-    mask = mask_image(cropped)
-
-
-    tops, bottoms = [160, 335, 515, 700, 885, 1065, 1250, 1435, 1630, 1835, 2025, 2250, 2430, 3220], [100, 275, 455, 675, 860, 1045, 1250, 1435, 1630, 1830, 2025, 2235, 2435, 3250]
-    withlines = drawlines(mask, zip(tops, bottoms))
-    segments = slic(cropped, 10000)
+    mask = mask_image(image)
+    sk = cv2.ximgproc.thinning(mask)
+    cv2.imwrite('test.tif', sk)
+    
+    #segments = slic(cropped, 10000)
     #superpixels = draw_superpixel_borders(cropped, segments)
     #superpixels = drawlines(superpixels, zip(tops, bottoms))
-    intersections, sp_mask = mask_superpixels_intersecting_line(cropped, segments, zip(tops, bottoms))
+    #intersections, sp_mask = mask_superpixels_intersecting_line(cropped, segments, zip(tops, bottoms))
 
 
-    crop_mask = cv2.bitwise_and(mask, sp_mask)
-    weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
-    plantseg = np.zeros_like(cropped)
-    plantseg[crop_mask == 255] = (0, 255, 0)
-    plantseg[weed_mask == 255] = (0, 0, 255)
+    # crop_mask = cv2.bitwise_and(mask, sp_mask)
+    # weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
+    # plantseg = np.zeros_like(cropped)
+    # plantseg[crop_mask == 255] = (0, 255, 0)
+    # plantseg[weed_mask == 255] = (0, 0, 255)
 
 
-    cv2.imwrite('plantseg.jpg', plantseg)
-    cv2.imwrite('cropmask.jpg', crop_mask)
-    cv2.imwrite('weedmask.jpg', weed_mask)
+    # cv2.imwrite('plantseg.jpg', plantseg)
+    # cv2.imwrite('cropmask.jpg', crop_mask)
+    # cv2.imwrite('weedmask.jpg', weed_mask)
 
 
 
