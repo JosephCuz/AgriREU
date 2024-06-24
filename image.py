@@ -51,7 +51,7 @@ def mask_image(image):
 def drawlines(image, lines, col = (255, 0, 0)):
     res = image.copy()
     for coord in lines:
-        res = cv2.line(res, (coord[0] ,0), (coord[1], h), col, 2)
+        res = cv2.line(res, (coord[0][0] ,coord[0][1]), (coord[1][0], coord[1][1]), col, 2)
     return res
 
 def slic(image, segments):
@@ -126,24 +126,44 @@ if __name__ == "__main__":
 
     mask = mask_image(image)
     sk = cv2.ximgproc.thinning(mask)
-    cv2.imwrite('test.tif', sk)
+    #sk = cv2.Canny(mask, 50, 200, 3)
+
+
+    lines = list(filter(lambda x: abs(x[0][1]) > 0.5,  cv2.HoughLines(sk, 1, np.pi / 180, 450, None, 0, 0)))
+    out = cv2.cvtColor(sk, cv2.COLOR_GRAY2BGR)
+    linesxy = []
+ 
+    if lines is not None:
+        for i in range(0, len(lines)):
+            rho = lines[i][0][0]
+            theta = lines[i][0][1]
+            a = np.cos(theta)
+            b = np.sin(theta)
+            x0 = a * rho
+            y0 = b * rho
+            pt1 = (int(x0 + w*(-b)), int(y0 + h*(a)))
+            pt2 = (int(x0 - w*(-b)), int(y0 - h*(a)))
+            linesxy.append((pt1, pt2))
+    lines = drawlines(image, linesxy)
     
-    #segments = slic(cropped, 10000)
-    #superpixels = draw_superpixel_borders(cropped, segments)
-    #superpixels = drawlines(superpixels, zip(tops, bottoms))
-    #intersections, sp_mask = mask_superpixels_intersecting_line(cropped, segments, zip(tops, bottoms))
+    segments = slic(image, 3000)
+    superpixels = draw_superpixel_borders(image, segments)
+    superpixels = drawlines(superpixels, lines)
+    cv2.imwrite('test.tif', superpixels)
+
+    intersections, sp_mask = mask_superpixels_intersecting_line(image, segments, linesxy)
 
 
-    # crop_mask = cv2.bitwise_and(mask, sp_mask)
-    # weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
-    # plantseg = np.zeros_like(cropped)
-    # plantseg[crop_mask == 255] = (0, 255, 0)
-    # plantseg[weed_mask == 255] = (0, 0, 255)
+    crop_mask = cv2.bitwise_and(mask, sp_mask)
+    weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
+    plantseg = np.zeros_like(image)
+    plantseg[crop_mask == 255] = (0, 255, 0)
+    plantseg[weed_mask == 255] = (0, 0, 255)
 
 
-    # cv2.imwrite('plantseg.jpg', plantseg)
-    # cv2.imwrite('cropmask.jpg', crop_mask)
-    # cv2.imwrite('weedmask.jpg', weed_mask)
+    cv2.imwrite('plantseg.jpg', plantseg)
+    cv2.imwrite('cropmask.jpg', crop_mask)
+    cv2.imwrite('weedmask.jpg', weed_mask)
 
 
 
