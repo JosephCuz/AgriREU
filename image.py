@@ -107,30 +107,9 @@ def mask_superpixels_intersecting_line(image, labels, lines):
 
     return masked_image, superpixel_mask
 
-def hough_transform(image):
-    pass
-
-
-if __name__ == "__main__":
-
-    image = cv2.imread('original3.tiff')
-
-    h, w = image.shape[:2]
-    fx, fy = w, h  # Approximation, should be calibrated for better results
-    cx, cy = w / 2, h / 2
-
-    #undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
-    #cropped = undistorted[:, 0:w-800]
-
-    #cv2.imwrite('undistorted.jpg', cropped)
-
-    mask = mask_image(image)
-    sk = cv2.ximgproc.thinning(mask)
-    #sk = cv2.Canny(mask, 50, 200, 3)
-
-
-    lines = list(filter(lambda x: abs(x[0][1]) > 0.5,  cv2.HoughLines(sk, 1, np.pi / 180, 450, None, 0, 0)))
-    out = cv2.cvtColor(sk, cv2.COLOR_GRAY2BGR)
+def hough_transform(skeleton, anglethr = 0.1, angleoffset = 0.05, houghthr = 750):
+    h, w = skeleton.shape[:2]
+    lines = cv2.HoughLines(skeleton, 1, np.pi / 1200, houghthr, None, min_theta=np.pi/2+angleoffset - anglethr, max_theta=np.pi/2+angleoffset + anglethr)
     linesxy = []
  
     if lines is not None:
@@ -141,19 +120,51 @@ if __name__ == "__main__":
             b = np.sin(theta)
             x0 = a * rho
             y0 = b * rho
-            pt1 = (int(x0 + w*(-b)), int(y0 + h*(a)))
-            pt2 = (int(x0 - w*(-b)), int(y0 - h*(a)))
+            pt1 = (int(x0 - (w+500)*(-b)), int(y0 - (h+500)*(a)))
+            pt2 = (int(x0 + w*(-b)), int(y0 + h*(a)))
             linesxy.append((pt1, pt2))
-    lines = drawlines(image, linesxy)
-    
-    segments = slic(image, 3000)
-    superpixels = draw_superpixel_borders(image, segments)
-    superpixels = drawlines(superpixels, lines)
-    cv2.imwrite('test.tif', superpixels)
+    return linesxy
 
+def hough_transformP(skeleton, anglethr = 0.1, angleoffset = 0.05, houghthr = 300):
+    h, w = skeleton.shape[:2]
+    lines = cv2.HoughLinesP(skeleton, 1, np.pi / 1200, houghthr, None)
+    
+    return [[(line[0][0], line[0][1]), (line[0][2], line[0][3])] for line in lines]
+
+if __name__ == "__main__":
+
+    print('loading')
+    #image = cv2.imread('dataset_2048/tile_18432_14336.tiff')
+    image = cv2.imread('dataset_4096/tile_19.tiff')
+
+    h, w = image.shape[:2]
+    fx, fy = w, h  # Approximation, should be calibrated for better results
+    cx, cy = w / 2, h / 2
+
+    #undistorted = correct_barrel_distortion(image, fx, fy, cx, cy, np.array([-0.15, 0.03, 0, 0, 0])) 
+    #cropped = undistorted[:, 0:w-800]
+
+    #cv2.imwrite('undistorted.jpg', cropped)
+    print('masking')
+    mask = mask_image(image)
+    print('skeletonizing')
+    sk = cv2.ximgproc.thinning(mask)
+    #sk = cv2.Canny(mask, 50, 200, 3)
+
+    print('Hough transform')
+    linesxy = hough_transformP(sk, houghthr=700)
+
+    lines = drawlines(image, linesxy)
+    print('slic')
+    segments = slic(image, 10000)
+    print('superpixel borders')
+    superpixels = draw_superpixel_borders(image, segments)
+    superpixels = drawlines(superpixels, linesxy)
+    cv2.imwrite('test.tif', superpixels)
+    print('intersecting')
     intersections, sp_mask = mask_superpixels_intersecting_line(image, segments, linesxy)
 
-
+    print('finishing')
     crop_mask = cv2.bitwise_and(mask, sp_mask)
     weed_mask = cv2.bitwise_and(mask, cv2.bitwise_not(sp_mask))
     plantseg = np.zeros_like(image)
